@@ -4,6 +4,8 @@ A lightweight Streamlit dashboard and GitHub Actions automation for weekly lawn 
 
 Mow Metrics stores user mowing profiles in Google Sheets, checks Open-Meteo rainfall data after expected mow days, predicts whether the mow likely happened, and lets an operator confirm pending rows for monthly billing.
 
+Live app: https://mow-metrics.streamlit.app/
+
 ## Repository Layout
 
 - `app.py`: Streamlit setup and reconciliation dashboard.
@@ -66,6 +68,8 @@ Add repository secrets:
 The workflow runs daily at 12:00 UTC and can also be triggered manually from the Actions tab.
 
 ## Streamlit Community Cloud
+
+Live app: https://mow-metrics.streamlit.app/
 
 Deploy the repository as a Streamlit app with `app.py` as the entrypoint. Add the same Google secrets in Streamlit's app settings before launching the dashboard.
 
