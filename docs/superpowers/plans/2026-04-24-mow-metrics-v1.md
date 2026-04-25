@@ -69,6 +69,7 @@ This plan was reviewed before implementation to close gaps that would otherwise 
 - Create: `pyproject.toml`
 - Create: `tests/conftest.py`
 - Create: `tests/test_config.py`
+- Create: `tests/test_sheets.py`
 - Modify: `requirements.txt`
 
 - [ ] **Step 1: Write the failing shared-models test**
@@ -88,12 +89,60 @@ def test_shared_headers_and_status_constants_are_defined():
     assert CONFIRMED_STATUS_PENDING == "Pending"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 2: Write failing config tests for required secrets and defaults**
 
-Run: `python -m pytest tests/test_sheets.py -k headers -v`
+```python
+import json
+
+import pytest
+
+from mow_metrics.config import load_settings, load_settings_from_mapping
+
+
+def test_load_settings_reads_sheet_id_service_account_and_defaults(monkeypatch):
+    service_account = {"client_email": "bot@example.com", "private_key": "fake"}
+    monkeypatch.setenv("GOOGLE_SHEET_ID", "sheet-123")
+    monkeypatch.setenv("GOOGLE_SERVICE_ACCOUNT_JSON", json.dumps(service_account))
+
+    settings = load_settings()
+
+    assert settings.google_sheet_id == "sheet-123"
+    assert settings.google_service_account_info == service_account
+    assert settings.precipitation_threshold_mm == 0.2
+    assert settings.workday_start_hour == 8
+    assert settings.workday_end_hour == 17
+
+
+def test_load_settings_requires_service_account_json(monkeypatch):
+    monkeypatch.setenv("GOOGLE_SHEET_ID", "sheet-123")
+    monkeypatch.delenv("GOOGLE_SERVICE_ACCOUNT_JSON", raising=False)
+
+    with pytest.raises(RuntimeError, match="GOOGLE_SERVICE_ACCOUNT_JSON"):
+        load_settings()
+
+
+def test_load_settings_from_mapping_supports_streamlit_like_secrets():
+    service_account = {"client_email": "bot@example.com", "private_key": "fake"}
+
+    settings = load_settings_from_mapping(
+        {
+            "GOOGLE_SHEET_ID": "sheet-123",
+            "GOOGLE_SERVICE_ACCOUNT_JSON": json.dumps(service_account),
+            "PRECIPITATION_THRESHOLD_MM": "0.5",
+        }
+    )
+
+    assert settings.google_sheet_id == "sheet-123"
+    assert settings.google_service_account_info == service_account
+    assert settings.precipitation_threshold_mm == 0.5
+```
+
+- [ ] **Step 3: Run tests to verify they fail**
+
+Run: `python -m pytest tests/test_sheets.py tests/test_config.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'mow_metrics'`
 
-- [ ] **Step 3: Write package metadata, constants, and config implementation**
+- [ ] **Step 4: Write package metadata, constants, and config implementation**
 
 ```toml
 # pyproject.toml
@@ -201,6 +250,7 @@ class LogEntry:
 from dataclasses import dataclass
 import json
 import os
+from collections.abc import Mapping
 from typing import Any
 
 
@@ -213,53 +263,25 @@ class Settings:
     workday_end_hour: int = 17
 
 
-def _load_service_account_json() -> dict[str, Any]:
-    raw_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
+def _load_service_account_json(source: Mapping[str, str]) -> dict[str, Any]:
+    raw_json = source.get("GOOGLE_SERVICE_ACCOUNT_JSON")
     if not raw_json:
         raise RuntimeError("GOOGLE_SERVICE_ACCOUNT_JSON is required.")
     return json.loads(raw_json)
 
 
-def load_settings() -> Settings:
+def load_settings_from_mapping(source: Mapping[str, str]) -> Settings:
     return Settings(
-        google_sheet_id=os.environ["GOOGLE_SHEET_ID"],
-        google_service_account_info=_load_service_account_json(),
-        precipitation_threshold_mm=float(os.getenv("PRECIPITATION_THRESHOLD_MM", "0.2")),
-        workday_start_hour=int(os.getenv("WORKDAY_START_HOUR", "8")),
-        workday_end_hour=int(os.getenv("WORKDAY_END_HOUR", "17")),
+        google_sheet_id=source["GOOGLE_SHEET_ID"],
+        google_service_account_info=_load_service_account_json(source),
+        precipitation_threshold_mm=float(source.get("PRECIPITATION_THRESHOLD_MM", "0.2")),
+        workday_start_hour=int(source.get("WORKDAY_START_HOUR", "8")),
+        workday_end_hour=int(source.get("WORKDAY_END_HOUR", "17")),
     )
-```
-
-- [ ] **Step 4: Add failing config tests for required secrets and defaults**
-
-```python
-import json
-
-import pytest
-
-from mow_metrics.config import load_settings
 
 
-def test_load_settings_reads_sheet_id_service_account_and_defaults(monkeypatch):
-    service_account = {"client_email": "bot@example.com", "private_key": "fake"}
-    monkeypatch.setenv("GOOGLE_SHEET_ID", "sheet-123")
-    monkeypatch.setenv("GOOGLE_SERVICE_ACCOUNT_JSON", json.dumps(service_account))
-
-    settings = load_settings()
-
-    assert settings.google_sheet_id == "sheet-123"
-    assert settings.google_service_account_info == service_account
-    assert settings.precipitation_threshold_mm == 0.2
-    assert settings.workday_start_hour == 8
-    assert settings.workday_end_hour == 17
-
-
-def test_load_settings_requires_service_account_json(monkeypatch):
-    monkeypatch.setenv("GOOGLE_SHEET_ID", "sheet-123")
-    monkeypatch.delenv("GOOGLE_SERVICE_ACCOUNT_JSON", raising=False)
-
-    with pytest.raises(RuntimeError, match="GOOGLE_SERVICE_ACCOUNT_JSON"):
-        load_settings()
+def load_settings() -> Settings:
+    return load_settings_from_mapping(os.environ)
 ```
 
 - [ ] **Step 5: Run tests to verify they pass**
@@ -315,10 +337,6 @@ def derive_season_dates(latitude: float, year: int) -> tuple[date, date]:
 
 def is_date_in_season(target_date: date, season_start: date, season_end: date) -> bool:
     return season_start <= target_date <= season_end
-
-
-def parse_iso_date(value: str) -> date:
-    return date.fromisoformat(value)
 ```
 
 - [ ] **Step 4: Expand with a second failing boundary test**
@@ -346,12 +364,19 @@ def test_parse_iso_date_accepts_sheet_date_format():
 - [ ] **Step 5: Run tests to verify red then green**
 
 Run: `python -m pytest tests/test_seasonality.py -v`
-Expected red: one new failing assertion before the implementation update
+Expected red: `ImportError` for `parse_iso_date`
+
+- [ ] **Step 6: Implement `parse_iso_date`**
+
+```python
+def parse_iso_date(value: str) -> date:
+    return date.fromisoformat(value)
+```
 
 Run: `python -m pytest tests/test_seasonality.py -v`
-Expected green: all tests PASS after the update
+Expected green: all tests PASS
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add src/mow_metrics/seasonality.py tests/test_seasonality.py
@@ -394,6 +419,9 @@ Expected: FAIL with `ImportError` for `predict_mow_status`
 
 ```python
 from dataclasses import dataclass
+from datetime import date
+
+import requests
 
 from mow_metrics.models import PREDICTED_STATUS_MOWED, PREDICTED_STATUS_SKIPPED
 
@@ -496,10 +524,66 @@ def test_fetch_daily_weather_builds_archive_request_for_target_date():
 Run: `python -m pytest tests/test_weather.py -v`
 Expected red: new helper tests fail before helper functions exist
 
-Run: `python -m pytest tests/test_weather.py -v`
-Expected green: all weather tests PASS after the implementation update
+- [ ] **Step 6: Implement geocoding and weather helper functions**
 
-- [ ] **Step 6: Commit**
+```python
+@dataclass(frozen=True)
+class GeocodingResult:
+    latitude: float
+    longitude: float
+    name: str
+
+
+def extract_hourly_precipitation(payload: dict) -> list[float]:
+    return [float(value) for value in payload.get("hourly", {}).get("precipitation", [])]
+
+
+def build_weather_summary(hourly_precipitation: list[float]) -> str:
+    return f"Daily rainfall: {sum(hourly_precipitation):.2f} mm"
+
+
+def geocode_zip(zip_code: str, session=None) -> GeocodingResult:
+    session = session or requests.Session()
+    response = session.get(
+        "https://geocoding-api.open-meteo.com/v1/search",
+        params={"name": zip_code, "count": 1, "countryCode": "US", "language": "en", "format": "json"},
+        timeout=20,
+    )
+    response.raise_for_status()
+    results = response.json().get("results", [])
+    if not results:
+        raise ValueError(f"No geocoding result found for zip code {zip_code}.")
+    first = results[0]
+    return GeocodingResult(
+        latitude=float(first["latitude"]),
+        longitude=float(first["longitude"]),
+        name=str(first.get("name", zip_code)),
+    )
+
+
+def fetch_daily_weather(latitude: float, longitude: float, target_date: date, session=None) -> dict:
+    session = session or requests.Session()
+    date_text = target_date.isoformat()
+    response = session.get(
+        "https://archive-api.open-meteo.com/v1/archive",
+        params={
+            "latitude": latitude,
+            "longitude": longitude,
+            "start_date": date_text,
+            "end_date": date_text,
+            "hourly": "precipitation",
+            "timezone": "auto",
+        },
+        timeout=20,
+    )
+    response.raise_for_status()
+    return response.json()
+```
+
+Run: `python -m pytest tests/test_weather.py -v`
+Expected green: all weather tests PASS
+
+- [ ] **Step 7: Commit**
 
 ```bash
 git add src/mow_metrics/weather.py tests/test_weather.py
@@ -543,6 +627,8 @@ Expected: FAIL with `ImportError` for `mow_metrics.sheets`
 
 ```python
 from collections.abc import Iterable
+
+from mow_metrics.models import LOG_HEADERS
 
 
 def build_log_key(username: str, year: int | str, mow_date: str) -> str:
@@ -630,10 +716,49 @@ def test_update_confirmation_updates_confirmed_status_and_timestamp_cells():
 Run: `python -m pytest tests/test_sheets.py -v`
 Expected red: upsert test fails before the new helper exists
 
-Run: `python -m pytest tests/test_sheets.py -v`
-Expected green: all sheets tests PASS after the implementation update
+- [ ] **Step 6: Implement sheet row helpers**
 
-- [ ] **Step 6: Commit**
+```python
+def upsert_user_config_row(existing_rows: list[dict[str, str]], new_row: dict[str, str]) -> list[dict[str, str]]:
+    result = []
+    replaced = False
+    for row in existing_rows:
+        if row.get("Username") == new_row.get("Username") and row.get("Active Year") == new_row.get("Active Year"):
+            result.append(new_row)
+            replaced = True
+        else:
+            result.append(row)
+    if not replaced:
+        result.append(new_row)
+    return result
+
+
+def ensure_headers(worksheet, headers: list[str]) -> None:
+    if worksheet.row_values(1) != headers:
+        worksheet.update("1:1", [headers])
+
+
+def find_log_row_number(rows: list[dict[str, str]], username: str, year: int | str, mow_date: str) -> int | None:
+    target_key = build_log_key(username, year, mow_date)
+    for index, row in enumerate(rows, start=2):
+        if build_log_key(row.get("Username", ""), row.get("Year", ""), row.get("Date", "")) == target_key:
+            return index
+    return None
+
+
+def log_entry_to_row(entry: dict[str, str]) -> list[str]:
+    return [str(entry.get(header, "")) for header in LOG_HEADERS]
+
+
+def update_confirmation(worksheet, row_number: int, confirmed_status: str, updated_at: str) -> None:
+    worksheet.update(f"K{row_number}", [[confirmed_status]])
+    worksheet.update(f"N{row_number}", [[updated_at]])
+```
+
+Run: `python -m pytest tests/test_sheets.py -v`
+Expected green: all sheets tests PASS
+
+- [ ] **Step 7: Commit**
 
 ```bash
 git add src/mow_metrics/sheets.py tests/test_sheets.py
@@ -731,10 +856,50 @@ def test_build_log_entry_defaults_confirmation_to_pending():
 Run: `python -m pytest tests/test_fetch_and_predict.py -v`
 Expected red: duplicate-skip test fails before helper exists
 
-Run: `python -m pytest tests/test_fetch_and_predict.py -v`
-Expected green: all automation tests PASS after the implementation update
+- [ ] **Step 6: Implement duplicate and log-entry helpers**
 
-- [ ] **Step 6: Commit**
+```python
+import json
+
+from mow_metrics.models import CONFIRMED_STATUS_PENDING
+from mow_metrics.sheets import build_log_key
+
+
+def should_append_log_row(username: str, year: int, mow_date: str, existing_keys: set[str]) -> bool:
+    return build_log_key(username, year, mow_date) not in existing_keys
+
+
+def build_log_entry(
+    user_row: dict[str, str],
+    mow_date: str,
+    weather_summary: str,
+    raw_api_json: dict,
+    predicted_status: str,
+    prediction_reason: str,
+    created_at: str,
+) -> dict[str, str]:
+    return {
+        "Username": user_row["Username"],
+        "Year": user_row["Active Year"],
+        "Date": mow_date,
+        "Expected Day": user_row["Expected Mow Day"],
+        "Zip Code": user_row["Zip Code"],
+        "Latitude": user_row["Latitude"],
+        "Longitude": user_row["Longitude"],
+        "Weather Summary": weather_summary,
+        "Raw API JSON": json.dumps(raw_api_json, sort_keys=True),
+        "Predicted Status": predicted_status,
+        "Confirmed Status": CONFIRMED_STATUS_PENDING,
+        "Prediction Reason": prediction_reason,
+        "Created At": created_at,
+        "Updated At": created_at,
+    }
+```
+
+Run: `python -m pytest tests/test_fetch_and_predict.py -v`
+Expected green: all automation tests PASS
+
+- [ ] **Step 7: Commit**
 
 ```bash
 git add fetch_and_predict.py tests/test_fetch_and_predict.py
@@ -773,7 +938,7 @@ Expected: FAIL with `ImportError` for `count_confirmed_mows_for_month`
 - [ ] **Step 3: Write minimal dashboard logic**
 
 ```python
-from datetime import datetime
+from datetime import date, datetime
 
 
 def count_confirmed_mows_for_month(rows: list[dict[str, str]], selected_year: int, current_month: int) -> int:
@@ -839,10 +1004,50 @@ def test_build_user_config_row_includes_geocoded_coordinates_and_season_dates():
 Run: `python -m pytest tests/test_app_logic.py -v`
 Expected red: pending filter test fails before helper exists
 
-Run: `python -m pytest tests/test_app_logic.py -v`
-Expected green: all app logic tests PASS after the implementation update
+- [ ] **Step 6: Implement dashboard helper functions**
 
-- [ ] **Step 6: Commit**
+```python
+def pending_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+    return [row for row in rows if row.get("Confirmed Status") == "Pending"]
+
+
+def filter_log_rows(rows: list[dict[str, str]], username: str, year: int) -> list[dict[str, str]]:
+    return [
+        row
+        for row in rows
+        if row.get("Username") == username and str(row.get("Year")) == str(year)
+    ]
+
+
+def build_user_config_row(
+    username: str,
+    active_year: int,
+    zip_code: str,
+    latitude: float,
+    longitude: float,
+    expected_mow_day: str,
+    season_start: date,
+    season_end: date,
+    timestamp: str,
+) -> dict[str, str]:
+    return {
+        "Username": username,
+        "Active Year": str(active_year),
+        "Zip Code": zip_code,
+        "Latitude": f"{latitude:.2f}",
+        "Longitude": f"{longitude:.2f}",
+        "Expected Mow Day": expected_mow_day,
+        "Season Start": season_start.isoformat(),
+        "Season End": season_end.isoformat(),
+        "Created At": timestamp,
+        "Updated At": timestamp,
+    }
+```
+
+Run: `python -m pytest tests/test_app_logic.py -v`
+Expected green: all app logic tests PASS
+
+- [ ] **Step 7: Commit**
 
 ```bash
 git add app.py tests/test_app_logic.py
