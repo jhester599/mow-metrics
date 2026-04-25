@@ -10,3 +10,4 @@ venv/
 # Local secrets and environment
 .env
 .streamlit/secrets.toml
+*.log
