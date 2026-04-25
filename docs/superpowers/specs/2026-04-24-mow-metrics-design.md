@@ -267,6 +267,11 @@ The application will use environment variables and Streamlit secrets for:
 - Optional precipitation threshold settings
 - Optional working-hours settings for rainfall evaluation
 
+Both runtime surfaces must be supported:
+
+- GitHub Actions will provide `GOOGLE_SHEET_ID` and `GOOGLE_SERVICE_ACCOUNT_JSON` as encrypted repository secrets.
+- Streamlit Community Cloud will provide equivalent values through Streamlit secrets, which the app can adapt into the same settings object used by the automation script.
+
 The README must document:
 
 - Local setup
@@ -280,11 +285,17 @@ Automated tests should focus on the decision logic and data rules rather than th
 
 Priority coverage:
 
+- Configuration loading for required Google secrets and default prediction settings
 - Seasonality heuristic behavior across representative latitude bands
 - Prototype default behavior for zip code `44236`
+- Zip-code geocoding using mocked HTTP responses
+- Open-Meteo archive request construction using mocked HTTP responses
 - Duplicate detection for `Username + Year + Date`
 - Rainfall-only prediction decisions from sample Open-Meteo payloads
+- Google Sheets header initialization and row conversion behavior
 - Row update logic for manual confirmation writes
+- Automation orchestration decisions for season checks, expected mow day checks, duplicate skipping, and pending log creation
+- Dashboard helper behavior for user/year filtering, pending-row selection, setup row construction, and monthly confirmed mow counts
 
 The Streamlit app itself can remain lightly tested in v1 as long as the core services are well covered.
 
