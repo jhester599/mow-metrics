@@ -1,0 +1,20 @@
+[project]
+name = "mow-metrics"
+version = "0.1.0"
+description = "Streamlit dashboard and weather automation for lawn mowing reconciliation."
+requires-python = ">=3.12"
+dependencies = [
+    "streamlit",
+    "gspread",
+    "google-auth",
+    "requests",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
