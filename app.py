@@ -71,9 +71,11 @@ def main() -> None:
     st.title("Mow Metrics")
     st.caption("Weekly mowing prediction and billing reconciliation.")
 
-    settings = _load_streamlit_settings(st)
+    settings, settings_error = _load_streamlit_settings(st)
     if not settings:
         st.warning("Add Google Sheets secrets to enable the dashboard.")
+        if settings_error:
+            st.caption(f"Secret loading detail: {settings_error}")
         return
 
     spreadsheet = open_spreadsheet(settings)
@@ -152,9 +154,9 @@ def _load_streamlit_settings(st):
         secrets = dict(st.secrets)
         if isinstance(secrets.get("GOOGLE_SERVICE_ACCOUNT_JSON"), dict):
             secrets["GOOGLE_SERVICE_ACCOUNT_JSON"] = json.dumps(secrets["GOOGLE_SERVICE_ACCOUNT_JSON"])
-        return load_settings_from_mapping(secrets)
-    except Exception:
-        return None
+        return load_settings_from_mapping(secrets), ""
+    except Exception as exc:
+        return None, f"{type(exc).__name__}: {exc}"
 
 
 if __name__ == "__main__":
