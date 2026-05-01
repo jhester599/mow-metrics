@@ -1,5 +1,7 @@
 from datetime import date
 
+from pathlib import Path
+
 from app import (
     build_user_config_row,
     confirmation_updates,
@@ -27,6 +29,13 @@ def test_count_confirmed_mows_for_month_counts_only_mowed_rows_in_selected_month
     total = count_confirmed_mows_for_month(rows, selected_year=2026, current_month=4)
 
     assert total == 1
+
+
+def test_app_bootstraps_src_package_path_before_importing_mow_metrics():
+    app_source = Path("app.py").read_text()
+    bootstrap_position = app_source.index("sys.path.insert")
+    package_import_position = app_source.index("from mow_metrics.config")
+    assert bootstrap_position < package_import_position
 
 
 def test_pending_rows_returns_only_pending_items():
