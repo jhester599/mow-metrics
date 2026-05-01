@@ -13,7 +13,7 @@ from mow_metrics.sheets import (
     open_spreadsheet,
     read_records,
 )
-from mow_metrics.weather import extract_hourly_precipitation, fetch_daily_weather, predict_mow_status
+from mow_metrics.weather import extract_hourly_precipitation_for_date, fetch_daily_weather, predict_mow_status
 
 
 def should_process_user(user_row: dict[str, str], today: date) -> bool:
@@ -81,12 +81,20 @@ def process_users(
             longitude=float(user_row["Longitude"]),
             target_date=mow_date,
         )
-        hourly_precipitation = extract_hourly_precipitation(weather_payload)
+        previous_mow_date = mow_date - timedelta(days=1)
+        previous_day_hourly_precipitation = extract_hourly_precipitation_for_date(weather_payload, previous_mow_date)
+        hourly_precipitation = extract_hourly_precipitation_for_date(weather_payload, mow_date)
         prediction = predict_mow_status(
             hourly_precipitation=hourly_precipitation,
+            previous_day_hourly_precipitation=previous_day_hourly_precipitation,
             threshold_mm=settings.precipitation_threshold_mm,
             workday_start_hour=settings.workday_start_hour,
             workday_end_hour=settings.workday_end_hour,
+            saturation_threshold_mm=settings.saturation_threshold_mm,
+            saturation_start_hour=settings.saturation_start_hour,
+            saturation_end_hour=settings.saturation_end_hour,
+            morning_start_hour=settings.mow_day_morning_start_hour,
+            morning_end_hour=settings.mow_day_morning_end_hour,
         )
         created_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
         entry = build_log_entry(
