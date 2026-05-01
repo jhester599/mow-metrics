@@ -1,4 +1,10 @@
-from mow_metrics.models import CONFIRMED_STATUS_PENDING, LOG_HEADERS, USER_CONFIG_HEADERS
+from mow_metrics.models import (
+    CONFIRMED_STATUS_MOWED,
+    CONFIRMED_STATUS_PENDING,
+    CONFIRMED_STATUS_SKIPPED,
+    LOG_HEADERS,
+    USER_CONFIG_HEADERS,
+)
 from mow_metrics.sheets import (
     build_log_key,
     ensure_headers,
@@ -18,6 +24,8 @@ def test_shared_headers_and_status_constants_are_defined():
     ]
     assert "Prediction Reason" in LOG_HEADERS
     assert CONFIRMED_STATUS_PENDING == "Pending"
+    assert CONFIRMED_STATUS_MOWED == "Mowed"
+    assert CONFIRMED_STATUS_SKIPPED == "Skipped"
 
 
 def test_build_log_key_uses_username_year_and_date():
@@ -83,9 +91,9 @@ def test_find_log_row_number_returns_sheet_row_for_matching_key():
 def test_update_confirmation_updates_confirmed_status_and_timestamp_cells():
     worksheet = FakeWorksheet(values=[LOG_HEADERS])
 
-    update_confirmation(worksheet, row_number=2, confirmed_status="Yes", updated_at="2026-04-24T12:00:00")
+    update_confirmation(worksheet, row_number=2, confirmed_status="Mowed", updated_at="2026-04-24T12:00:00")
 
     assert worksheet.updated_ranges == [
-        ("K2", [["Yes"]]),
+        ("K2", [["Mowed"]]),
         ("N2", [["2026-04-24T12:00:00"]]),
     ]
