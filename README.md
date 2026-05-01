@@ -35,6 +35,11 @@ Optional settings:
 - `PRECIPITATION_THRESHOLD_MM`: Rainfall threshold for predicting a skipped mow. Defaults to `0.2`.
 - `WORKDAY_START_HOUR`: First hour included in mowing-day rainfall checks. Defaults to `8`.
 - `WORKDAY_END_HOUR`: Last hour included in mowing-day rainfall checks. Defaults to `17`.
+- `SATURATION_THRESHOLD_MM`: Previous-evening rainfall threshold for predicting saturated ground. Defaults to `5.0`.
+- `SATURATION_START_HOUR`: First prior-day hour included in saturation checks. Defaults to `18`.
+- `SATURATION_END_HOUR`: Last prior-day hour included in saturation checks. Defaults to `23`.
+- `MOW_DAY_MORNING_START_HOUR`: First mow-day morning hour checked as a strong skip signal. Defaults to `6`.
+- `MOW_DAY_MORNING_END_HOUR`: Last mow-day morning hour checked as a strong skip signal. Defaults to `12`.
 
 ## Local Development
 

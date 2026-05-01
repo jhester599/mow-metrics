@@ -12,6 +12,11 @@ class Settings:
     precipitation_threshold_mm: float = 0.2
     workday_start_hour: int = 8
     workday_end_hour: int = 17
+    saturation_threshold_mm: float = 5.0
+    saturation_start_hour: int = 18
+    saturation_end_hour: int = 23
+    mow_day_morning_start_hour: int = 6
+    mow_day_morning_end_hour: int = 12
 
 
 def _load_service_account_json(source: Mapping[str, str]) -> dict[str, Any]:
@@ -28,6 +33,11 @@ def load_settings_from_mapping(source: Mapping[str, str]) -> Settings:
         precipitation_threshold_mm=float(source.get("PRECIPITATION_THRESHOLD_MM", "0.2")),
         workday_start_hour=int(source.get("WORKDAY_START_HOUR", "8")),
         workday_end_hour=int(source.get("WORKDAY_END_HOUR", "17")),
+        saturation_threshold_mm=float(source.get("SATURATION_THRESHOLD_MM", "5.0")),
+        saturation_start_hour=int(source.get("SATURATION_START_HOUR", "18")),
+        saturation_end_hour=int(source.get("SATURATION_END_HOUR", "23")),
+        mow_day_morning_start_hour=int(source.get("MOW_DAY_MORNING_START_HOUR", "6")),
+        mow_day_morning_end_hour=int(source.get("MOW_DAY_MORNING_END_HOUR", "12")),
     )
 
 
