@@ -10,4 +10,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Ping deployed Streamlit app
-        run: curl --fail --location --max-time 30 https://mow-metrics.streamlit.app/
+        run: curl --fail --max-time 30 https://mow-metrics.streamlit.app/

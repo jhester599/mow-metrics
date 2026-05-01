@@ -21,3 +21,4 @@ def test_keep_awake_workflow_pings_streamlit_app_on_schedule():
     assert "cron:" in workflow
     assert "mow-metrics.streamlit.app" in workflow
     assert "curl" in workflow
+    assert "--location" not in workflow
