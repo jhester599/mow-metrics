@@ -12,6 +12,7 @@ Live app: https://mow-metrics.streamlit.app/
 - `fetch_and_predict.py`: Daily automation script for GitHub Actions.
 - `src/mow_metrics/`: Shared config, weather, seasonality, and Google Sheets helpers.
 - `.github/workflows/weather_check.yml`: Daily scheduled prediction workflow.
+- `.github/workflows/keep_awake.yml`: Keep Streamlit App Awake workflow.
 - `tests/`: Unit tests for core decision logic and setup documentation.
 
 ## Google Sheet Setup
@@ -70,13 +71,23 @@ Add repository secrets:
 - `GOOGLE_SHEET_ID`
 - `GOOGLE_SERVICE_ACCOUNT_JSON`
 
-The workflow runs daily at 12:00 UTC and can also be triggered manually from the Actions tab.
+`Daily Weather Check` runs daily at 12:00 UTC and can also be triggered manually from the Actions tab. It appends duplicate-safe prediction rows for users whose configured mow day was yesterday.
+
+`Keep Streamlit App Awake` runs every 8 hours and can also be triggered manually after the workflow exists on the default branch. It pings the deployed app with `curl --fail --max-time 30 https://mow-metrics.streamlit.app/`. Do not add `--location`; Streamlit's auth handoff can redirect repeatedly while still returning a valid response for the wake-up ping.
 
 ## Streamlit Community Cloud
 
 Live app: https://mow-metrics.streamlit.app/
 
 Deploy the repository as a Streamlit app with `app.py` as the entrypoint. Add the same Google secrets in Streamlit's app settings before launching the dashboard.
+
+Community Cloud apps can hibernate after idle periods. The `Keep Streamlit App Awake` workflow reduces that by making a scheduled lightweight request to the public app URL.
+
+## Dashboard Behavior
+
+The dashboard backfills missing expected mow dates from a user's season start through yesterday, skipping dates that already exist in `Log`. When all dates are already backfilled, the backfill action is hidden and replaced with a completion note.
+
+The log table is sorted by date and hides `Raw API JSON` from display while retaining it in Google Sheets. `Confirmed Status` uses `Pending`, `Mowed`, and `Skipped` so confirmations match predicted status terms. Status cells are colored green for `Mowed`, red for `Skipped`, and unfilled for `Pending`.
 
 ## Seasonality Logic
 

@@ -22,3 +22,16 @@ def test_keep_awake_workflow_pings_streamlit_app_on_schedule():
     assert "mow-metrics.streamlit.app" in workflow
     assert "curl" in workflow
     assert "--location" not in workflow
+
+
+def test_readme_documents_keep_awake_workflow():
+    readme = Path("README.md").read_text()
+    assert ".github/workflows/keep_awake.yml" in readme
+    assert "Keep Streamlit App Awake" in readme
+    assert "curl --fail --max-time 30" in readme
+
+
+def test_roadmap_no_longer_lists_saturation_as_future_work():
+    roadmap = Path("docs/roadmap.md").read_text()
+    assert "Completed" in roadmap
+    assert "ground saturation" not in roadmap.lower()
