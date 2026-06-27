@@ -1,6 +1,7 @@
 from datetime import date, datetime, timedelta, timezone
 import json
 from pathlib import Path
+import re
 import sys
 
 
@@ -27,6 +28,9 @@ from mow_metrics.sheets import (
     update_confirmation,
 )
 from mow_metrics.weather import (
+    extract_daily_temperature_min,
+    extract_daily_wind_gust_max,
+    extract_extended_prior_precipitation,
     extract_hourly_precipitation_for_date,
     fetch_daily_weather,
     geocode_zip,
@@ -182,6 +186,9 @@ def build_backfill_entries(
         previous_mow_date = mow_date - timedelta(days=1)
         previous_day_hourly_precipitation = extract_hourly_precipitation_for_date(weather_payload, previous_mow_date)
         hourly_precipitation = extract_hourly_precipitation_for_date(weather_payload, mow_date)
+        extended_prior_precipitation = extract_extended_prior_precipitation(weather_payload, mow_date)
+        min_temperature_c = extract_daily_temperature_min(weather_payload, mow_date)
+        max_wind_gust_kmh = extract_daily_wind_gust_max(weather_payload, mow_date)
         prediction = predict_mow_status(
             hourly_precipitation=hourly_precipitation,
             previous_day_hourly_precipitation=previous_day_hourly_precipitation,
@@ -193,6 +200,12 @@ def build_backfill_entries(
             saturation_end_hour=settings.saturation_end_hour,
             morning_start_hour=settings.mow_day_morning_start_hour,
             morning_end_hour=settings.mow_day_morning_end_hour,
+            min_temperature_c=min_temperature_c,
+            min_temperature_threshold_c=settings.min_temperature_threshold_c,
+            max_wind_gust_kmh=max_wind_gust_kmh,
+            max_wind_gust_threshold_kmh=settings.max_wind_gust_threshold_kmh,
+            extended_prior_precipitation=extended_prior_precipitation,
+            extended_saturation_threshold_mm=settings.extended_saturation_threshold_mm,
         )
         entries.append(
             build_log_entry(
@@ -233,6 +246,114 @@ def build_user_config_row(
     }
 
 
+def compute_accuracy_metrics(rows: list[dict[str, str]]) -> dict:
+    confirmed = [
+        r for r in rows
+        if normalize_confirmed_status(r.get("Confirmed Status", "")) in (CONFIRMED_STATUS_MOWED, CONFIRMED_STATUS_SKIPPED)
+    ]
+    total = len(confirmed)
+    if total == 0:
+        return {"total": 0, "correct": 0, "accuracy_pct": None, "false_positives": 0, "false_negatives": 0}
+    correct = false_positives = false_negatives = 0
+    for row in confirmed:
+        predicted = row.get("Predicted Status", "")
+        confirmed_status = normalize_confirmed_status(row.get("Confirmed Status", ""))
+        if predicted == confirmed_status:
+            correct += 1
+        elif predicted == CONFIRMED_STATUS_MOWED and confirmed_status == CONFIRMED_STATUS_SKIPPED:
+            false_positives += 1
+        elif predicted == CONFIRMED_STATUS_SKIPPED and confirmed_status == CONFIRMED_STATUS_MOWED:
+            false_negatives += 1
+    return {
+        "total": total,
+        "correct": correct,
+        "accuracy_pct": round(correct / total * 100, 1),
+        "false_positives": false_positives,
+        "false_negatives": false_negatives,
+    }
+
+
+def compute_monthly_accuracy(rows: list[dict[str, str]]) -> list[dict]:
+    by_month: dict[str, dict] = {}
+    for row in rows:
+        confirmed_status = normalize_confirmed_status(row.get("Confirmed Status", ""))
+        if confirmed_status not in (CONFIRMED_STATUS_MOWED, CONFIRMED_STATUS_SKIPPED):
+            continue
+        try:
+            month_key = datetime.strptime(row["Date"], "%Y-%m-%d").strftime("%Y-%m")
+        except (KeyError, ValueError):
+            continue
+        bucket = by_month.setdefault(month_key, {"month": month_key, "total": 0, "correct": 0})
+        bucket["total"] += 1
+        if row.get("Predicted Status", "") == confirmed_status:
+            bucket["correct"] += 1
+    result = []
+    for bucket in sorted(by_month.values(), key=lambda b: b["month"]):
+        bucket["accuracy_pct"] = round(bucket["correct"] / bucket["total"] * 100, 1) if bucket["total"] else None
+        result.append(bucket)
+    return result
+
+
+def parse_weather_summary_values(summary: str) -> dict | None:
+    match = re.search(
+        r"Prior evening rainfall:\s*([\d.]+)\s*mm.*?morning rainfall:\s*([\d.]+)\s*mm.*?workday rainfall:\s*([\d.]+)\s*mm",
+        summary,
+    )
+    if not match:
+        return None
+    return {
+        "saturation_mm": float(match.group(1)),
+        "morning_mm": float(match.group(2)),
+        "workday_mm": float(match.group(3)),
+    }
+
+
+def _simulate_prediction_from_summary(values: dict, precip_threshold: float, sat_threshold: float) -> str:
+    if values["saturation_mm"] >= sat_threshold:
+        return CONFIRMED_STATUS_SKIPPED
+    if values["morning_mm"] >= precip_threshold:
+        return CONFIRMED_STATUS_SKIPPED
+    if values["workday_mm"] >= precip_threshold:
+        return CONFIRMED_STATUS_SKIPPED
+    return CONFIRMED_STATUS_MOWED
+
+
+def compute_optimal_thresholds(rows: list[dict[str, str]]) -> dict | None:
+    parseable = []
+    for row in rows:
+        confirmed_status = normalize_confirmed_status(row.get("Confirmed Status", ""))
+        if confirmed_status not in (CONFIRMED_STATUS_MOWED, CONFIRMED_STATUS_SKIPPED):
+            continue
+        values = parse_weather_summary_values(row.get("Weather Summary", ""))
+        if values is None:
+            continue
+        parseable.append((values, confirmed_status))
+    if len(parseable) < 3:
+        return None
+    best_accuracy = -1.0
+    best_precip: float = 0.2
+    best_sat: float = 5.0
+    precip_candidates = [round(x * 0.1, 1) for x in range(0, 51)]
+    sat_candidates = [round(x * 0.5, 1) for x in range(0, 41)]
+    for precip_threshold in precip_candidates:
+        for sat_threshold in sat_candidates:
+            correct = sum(
+                1 for values, confirmed_status in parseable
+                if _simulate_prediction_from_summary(values, precip_threshold, sat_threshold) == confirmed_status
+            )
+            accuracy = correct / len(parseable)
+            if accuracy > best_accuracy:
+                best_accuracy = accuracy
+                best_precip = precip_threshold
+                best_sat = sat_threshold
+    return {
+        "precipitation_threshold_mm": best_precip,
+        "saturation_threshold_mm": best_sat,
+        "accuracy_pct": round(best_accuracy * 100, 1),
+        "sample_size": len(parseable),
+    }
+
+
 def main() -> None:
     import streamlit as st
 
@@ -253,7 +374,7 @@ def main() -> None:
     user_rows = read_records(user_worksheet)
     log_rows = read_records(log_worksheet)
 
-    tab_setup, tab_dashboard = st.tabs(["Setup", "Dashboard"])
+    tab_setup, tab_dashboard, tab_accuracy = st.tabs(["Setup", "Dashboard", "Accuracy"])
     with tab_setup:
         st.subheader("User Configuration")
         with st.form("user-config"):
@@ -378,6 +499,71 @@ def main() -> None:
             st.caption(
                 f"{len(pending_rows(selected_rows))} row(s) still need confirmation."
             )
+
+
+    with tab_accuracy:
+        st.subheader("Prediction Accuracy")
+        acc_usernames = sorted({str(row.get("Username")) for row in user_rows if row.get("Username")})
+        if not acc_usernames:
+            st.info("Add a user profile to view accuracy metrics.")
+        else:
+            acc_username = st.selectbox("Username", acc_usernames, key="acc-username")
+            acc_years = sorted({int(row.get("Active Year")) for row in user_rows if row.get("Username") == acc_username})
+            acc_year = st.selectbox("Year", acc_years, key="acc-year")
+            acc_rows = sort_log_rows_by_date(filter_log_rows(log_rows, username=acc_username, year=acc_year))
+
+            metrics = compute_accuracy_metrics(acc_rows)
+            if metrics["total"] == 0:
+                st.info("No confirmed rows yet for this user/year. Confirm some predictions in the Dashboard tab first.")
+            else:
+                import pandas as pd
+
+                col1, col2, col3, col4 = st.columns(4)
+                col1.metric("Confirmed Rows", metrics["total"])
+                col2.metric("Overall Accuracy", f"{metrics['accuracy_pct']}%")
+                col3.metric("False Positives", metrics["false_positives"], help="Predicted Mowed → confirmed Skipped")
+                col4.metric("False Negatives", metrics["false_negatives"], help="Predicted Skipped → confirmed Mowed")
+
+                monthly = compute_monthly_accuracy(acc_rows)
+                if monthly:
+                    st.caption("Monthly breakdown")
+                    st.dataframe(
+                        pd.DataFrame(monthly).rename(columns={"month": "Month", "total": "Total", "correct": "Correct", "accuracy_pct": "Accuracy %"}),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+
+                st.divider()
+                st.subheader("Threshold Tuning")
+                st.caption(
+                    "Searches your confirmed history to find the precipitation and saturation thresholds "
+                    "that would have maximized accuracy. Requires at least 3 confirmed rows."
+                )
+                suggested = compute_optimal_thresholds(acc_rows)
+                if suggested is None:
+                    st.info("Not enough confirmed rows to suggest thresholds (minimum 3 required).")
+                else:
+                    t_col1, t_col2, t_col3 = st.columns(3)
+                    t_col1.metric(
+                        "Suggested Precipitation Threshold",
+                        f"{suggested['precipitation_threshold_mm']} mm",
+                        help="Apply via PRECIPITATION_THRESHOLD_MM environment variable",
+                    )
+                    t_col2.metric(
+                        "Suggested Saturation Threshold",
+                        f"{suggested['saturation_threshold_mm']} mm",
+                        help="Apply via SATURATION_THRESHOLD_MM environment variable",
+                    )
+                    t_col3.metric(
+                        "Projected Accuracy",
+                        f"{suggested['accuracy_pct']}%",
+                        help=f"Based on {suggested['sample_size']} confirmed rows",
+                    )
+                    st.caption(
+                        f"To apply: set `PRECIPITATION_THRESHOLD_MM={suggested['precipitation_threshold_mm']}` "
+                        f"and `SATURATION_THRESHOLD_MM={suggested['saturation_threshold_mm']}` "
+                        f"in your Streamlit secrets or GitHub Actions environment."
+                    )
 
 
 def _load_streamlit_settings(st):

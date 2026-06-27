@@ -12,6 +12,9 @@ class FakeSettings:
     saturation_end_hour = 23
     mow_day_morning_start_hour = 6
     mow_day_morning_end_hour = 12
+    min_temperature_threshold_c = 5.0
+    max_wind_gust_threshold_kmh = 60.0
+    extended_saturation_threshold_mm = 15.0
 
 
 def test_should_process_user_only_when_yesterday_matches_mow_day_and_today_is_in_season():
@@ -72,9 +75,10 @@ def test_process_users_uses_previous_day_saturation_for_prediction(monkeypatch):
     ]
     payload = {
         "hourly": {
-            "time": [f"2026-04-21T{hour:02d}:00" for hour in range(24)]
+            "time": [f"2026-04-20T{hour:02d}:00" for hour in range(24)]
+            + [f"2026-04-21T{hour:02d}:00" for hour in range(24)]
             + [f"2026-04-22T{hour:02d}:00" for hour in range(24)],
-            "precipitation": ([0.0] * 20 + [5.5] + [0.0] * 3) + ([0.0] * 24),
+            "precipitation": ([0.0] * 24) + ([0.0] * 20 + [5.5] + [0.0] * 3) + ([0.0] * 24),
         }
     }
 
