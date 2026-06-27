@@ -13,7 +13,14 @@ from mow_metrics.sheets import (
     open_spreadsheet,
     read_records,
 )
-from mow_metrics.weather import extract_hourly_precipitation_for_date, fetch_daily_weather, predict_mow_status
+from mow_metrics.weather import (
+    extract_daily_temperature_min,
+    extract_daily_wind_gust_max,
+    extract_extended_prior_precipitation,
+    extract_hourly_precipitation_for_date,
+    fetch_daily_weather,
+    predict_mow_status,
+)
 
 
 def should_process_user(user_row: dict[str, str], today: date) -> bool:
@@ -84,6 +91,9 @@ def process_users(
         previous_mow_date = mow_date - timedelta(days=1)
         previous_day_hourly_precipitation = extract_hourly_precipitation_for_date(weather_payload, previous_mow_date)
         hourly_precipitation = extract_hourly_precipitation_for_date(weather_payload, mow_date)
+        extended_prior_precipitation = extract_extended_prior_precipitation(weather_payload, mow_date)
+        min_temperature_c = extract_daily_temperature_min(weather_payload, mow_date)
+        max_wind_gust_kmh = extract_daily_wind_gust_max(weather_payload, mow_date)
         prediction = predict_mow_status(
             hourly_precipitation=hourly_precipitation,
             previous_day_hourly_precipitation=previous_day_hourly_precipitation,
@@ -95,6 +105,12 @@ def process_users(
             saturation_end_hour=settings.saturation_end_hour,
             morning_start_hour=settings.mow_day_morning_start_hour,
             morning_end_hour=settings.mow_day_morning_end_hour,
+            min_temperature_c=min_temperature_c,
+            min_temperature_threshold_c=settings.min_temperature_threshold_c,
+            max_wind_gust_kmh=max_wind_gust_kmh,
+            max_wind_gust_threshold_kmh=settings.max_wind_gust_threshold_kmh,
+            extended_prior_precipitation=extended_prior_precipitation,
+            extended_saturation_threshold_mm=settings.extended_saturation_threshold_mm,
         )
         created_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
         entry = build_log_entry(

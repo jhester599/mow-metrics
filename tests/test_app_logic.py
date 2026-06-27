@@ -4,6 +4,9 @@ from pathlib import Path
 
 from app import (
     build_user_config_row,
+    compute_accuracy_metrics,
+    compute_monthly_accuracy,
+    compute_optimal_thresholds,
     confirmation_updates,
     count_confirmed_mows_for_month,
     display_log_rows,
@@ -12,6 +15,7 @@ from app import (
     find_user_profile,
     missing_backfill_dates,
     normalize_confirmed_status,
+    parse_weather_summary_values,
     pending_rows,
     status_fill_color,
     sort_log_rows_by_date,
@@ -206,3 +210,82 @@ def test_status_fill_color_uses_green_for_mowed_red_for_skipped_and_blank_for_pe
     assert status_fill_color("Mowed") == "background-color: #d9ead3"
     assert status_fill_color("Skipped") == "background-color: #f4cccc"
     assert status_fill_color("Pending") == ""
+
+
+def test_compute_accuracy_metrics_counts_correct_and_incorrect_predictions():
+    rows = [
+        {"Predicted Status": "Mowed", "Confirmed Status": "Mowed"},
+        {"Predicted Status": "Mowed", "Confirmed Status": "Skipped"},
+        {"Predicted Status": "Skipped", "Confirmed Status": "Skipped"},
+        {"Predicted Status": "Skipped", "Confirmed Status": "Mowed"},
+        {"Predicted Status": "Mowed", "Confirmed Status": "Pending"},
+    ]
+    metrics = compute_accuracy_metrics(rows)
+    assert metrics["total"] == 4
+    assert metrics["correct"] == 2
+    assert metrics["accuracy_pct"] == 50.0
+    assert metrics["false_positives"] == 1
+    assert metrics["false_negatives"] == 1
+
+
+def test_compute_accuracy_metrics_returns_none_accuracy_when_no_confirmed_rows():
+    rows = [{"Predicted Status": "Mowed", "Confirmed Status": "Pending"}]
+    metrics = compute_accuracy_metrics(rows)
+    assert metrics["total"] == 0
+    assert metrics["accuracy_pct"] is None
+
+
+def test_compute_monthly_accuracy_groups_by_month():
+    rows = [
+        {"Date": "2026-04-01", "Predicted Status": "Mowed", "Confirmed Status": "Mowed"},
+        {"Date": "2026-04-08", "Predicted Status": "Mowed", "Confirmed Status": "Skipped"},
+        {"Date": "2026-05-01", "Predicted Status": "Skipped", "Confirmed Status": "Skipped"},
+    ]
+    monthly = compute_monthly_accuracy(rows)
+    assert len(monthly) == 2
+    april = next(m for m in monthly if m["month"] == "2026-04")
+    assert april["total"] == 2
+    assert april["correct"] == 1
+    assert april["accuracy_pct"] == 50.0
+    may = next(m for m in monthly if m["month"] == "2026-05")
+    assert may["accuracy_pct"] == 100.0
+
+
+def test_parse_weather_summary_values_extracts_rainfall_windows():
+    summary = (
+        "Prior evening rainfall: 3.50 mm; morning rainfall: 0.00 mm; "
+        "workday rainfall: 0.20 mm; evening rainfall: 1.00 mm"
+    )
+    values = parse_weather_summary_values(summary)
+    assert values is not None
+    assert values["saturation_mm"] == 3.50
+    assert values["morning_mm"] == 0.00
+    assert values["workday_mm"] == 0.20
+
+
+def test_parse_weather_summary_values_returns_none_for_unrecognized_format():
+    assert parse_weather_summary_values("Daily rainfall: 0.30 mm") is None
+
+
+def test_compute_optimal_thresholds_returns_none_when_too_few_rows():
+    rows = [
+        {"Predicted Status": "Mowed", "Confirmed Status": "Mowed", "Weather Summary": "Prior evening rainfall: 0.00 mm; morning rainfall: 0.00 mm; workday rainfall: 0.00 mm; evening rainfall: 0.00 mm"},
+        {"Predicted Status": "Mowed", "Confirmed Status": "Skipped", "Weather Summary": "Prior evening rainfall: 0.00 mm; morning rainfall: 0.00 mm; workday rainfall: 0.00 mm; evening rainfall: 0.00 mm"},
+    ]
+    assert compute_optimal_thresholds(rows) is None
+
+
+def test_compute_optimal_thresholds_suggests_thresholds_from_confirmed_history():
+    summary_dry = "Prior evening rainfall: 0.00 mm; morning rainfall: 0.00 mm; workday rainfall: 0.00 mm; evening rainfall: 0.00 mm"
+    summary_wet = "Prior evening rainfall: 6.00 mm; morning rainfall: 0.50 mm; workday rainfall: 0.40 mm; evening rainfall: 0.00 mm"
+    rows = [
+        {"Predicted Status": "Mowed", "Confirmed Status": "Mowed", "Weather Summary": summary_dry},
+        {"Predicted Status": "Mowed", "Confirmed Status": "Mowed", "Weather Summary": summary_dry},
+        {"Predicted Status": "Mowed", "Confirmed Status": "Skipped", "Weather Summary": summary_wet},
+    ]
+    result = compute_optimal_thresholds(rows)
+    assert result is not None
+    assert result["sample_size"] == 3
+    assert result["accuracy_pct"] == 100.0
+    assert result["precipitation_threshold_mm"] <= 0.5
+    assert result["saturation_threshold_mm"] <= 6.0

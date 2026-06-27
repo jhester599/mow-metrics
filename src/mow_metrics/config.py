@@ -17,6 +17,9 @@ class Settings:
     saturation_end_hour: int = 23
     mow_day_morning_start_hour: int = 6
     mow_day_morning_end_hour: int = 12
+    min_temperature_threshold_c: float = 5.0
+    max_wind_gust_threshold_kmh: float = 60.0
+    extended_saturation_threshold_mm: float = 15.0
 
 
 def _load_service_account_json(source: Mapping[str, str]) -> dict[str, Any]:
@@ -38,6 +41,9 @@ def load_settings_from_mapping(source: Mapping[str, str]) -> Settings:
         saturation_end_hour=int(source.get("SATURATION_END_HOUR", "23")),
         mow_day_morning_start_hour=int(source.get("MOW_DAY_MORNING_START_HOUR", "6")),
         mow_day_morning_end_hour=int(source.get("MOW_DAY_MORNING_END_HOUR", "12")),
+        min_temperature_threshold_c=float(source.get("MIN_TEMPERATURE_THRESHOLD_C", "5.0")),
+        max_wind_gust_threshold_kmh=float(source.get("MAX_WIND_GUST_THRESHOLD_KMH", "60.0")),
+        extended_saturation_threshold_mm=float(source.get("EXTENDED_SATURATION_THRESHOLD_MM", "15.0")),
     )
 
 
